@@ -8,6 +8,8 @@
 \usepackage{setspace}
 \usepackage{hyperref}
 \usepackage{titlesec}
+\usepackage{float}
+\usepackage{booktabs}
 
 % --- 参考文献配置 (修改处) ---
 % numbers: 使用数字引用 [1]
@@ -40,7 +42,10 @@
 
 % --- Abstract ---
 \begin{abstract}
-Large Language Model (LLM) inference represents a unique class of stochastic service systems characterized by highly variable service times, distinct two-phase execution dynamics comprising compute-bound prefill and memory-bound decoding, and stringent latency requirements. This project develops a comprehensive discrete-event simulation (DES) framework to rigorously analyze the performance trade-offs between system throughput, tail latency, and fairness in LLM serving. Utilizing the SimPy library, we modeled an inference engine that replicates the behavioral physics of state-of-the-art systems such as vLLM and Orca. Our experimental results, derived from non-homogeneous Poisson arrival processes and heavy-tailed workload distributions, identify a non-monotonic convex relationship between batch size and tail latency. Specifically, moderate batch sizes in the range of 32 to 64 maximize GPU utilization, reaching approximately 85\%, while maintaining acceptable Service Level Objectives (SLOs). In contrast, excessive batching ($B \ge 128$) induces severe head-of-line blocking which degrades p99 latency by over 60\%. Furthermore, we demonstrate that Shortest Job First (SJF) scheduling reduces average latency by 15\% compared to First-Come-First-Served (FCFS). However, this comes at the cost of significant unfairness, as evidenced by the Jain’s Index dropping from 0.82 to 0.64, necessitating hybrid scheduling approaches like priority aging.
+Large Language Model (LLM) inference represents a unique class of stochastic service systems characterized by highly variable service times, distinct two-phase execution dynamics comprising compute-bound prefill and memory-bound decoding, and stringent latency requirements. This project develops a comprehensive discrete-event simulation (DES) framework to rigorously analyze the performance trade-offs between system throughput, tail latency, and fairness in LLM serving. Utilizing the SimPy library, we modeled an inference engine that replicates the behavioral physics of state-of-the-art systems such as vLLM and Orca. Our experimental results, derived from non-homogeneous Poisson arrival processes and heavy-tailed workload distributions, identify a non-monotonic relationship between batch size and system performance. Specifically, moderate batch sizes in the range of 16 to 32 maximize throughput while maintaining acceptable latency. In contrast, small batch sizes ($B \le 8$) cause severe throughput bottlenecks. Furthermore, we demonstrate that Shortest Job First (SJF) scheduling reduces average latency by 37\% compared to First-Come-First-Served (FCFS). However, this comes at the cost of significant unfairness, as evidenced by Jain's Index dropping from 0.87 to 0.09, with 7\% starvation rate, necessitating hybrid scheduling approaches like priority aging. Finally, adaptive batching under traffic spikes reduces aggregate latency by 54\% compared to static batching.
+
+\vspace{1em}
+\noindent\textbf{Code Repository:} \url{https://github.com/momoway/llm-infer}
 \end{abstract}
 
 \newpage
@@ -55,7 +60,7 @@ The paradigm shift brought about by Generative AI has transitioned the industry 
 The economic stakes in this domain are substantial, as GPU accelerators such as the NVIDIA A100 or H100 represent the dominant operational cost for LLM providers. A key mechanism to improve hardware efficiency is batching, which involves processing multiple requests simultaneously to amortize the high cost of memory access. However, batching introduces complex interference patterns. The "Memory Wall" phenomenon implies that the decoding phase is bound by memory bandwidth rather than compute capability, meaning that increasing batch size linearly improves throughput only up to a saturation point \citep{yu2022}. Conversely, the prefill phase is compute-bound and can block ongoing decode operations, a problem addressed by advanced systems like vLLM via PagedAttention and Orca via iteration-level scheduling \citep{kwon2023, yu2022}. Understanding these trade-offs requires a simulation environment that can granularly model the interaction between the request queue, the scheduler, and the GPU hardware characteristics. This project aims to bridge the gap between theoretical queuing theory and practical system deployment by providing a rigorous simulation-based analysis of batching and scheduling strategies.
 
 \subsection{Problem Definition}
-The core optimization problem in LLM serving is to minimize response latency, specifically the p99 tail latency, while maximizing system throughput in tokens per second and ensuring fairness among users. We define three specific research questions to guide this study. First, we investigate dynamic batch size adaptation to understand how the selection of batch size $B$ influences the non-linear trade-off between throughput saturation and tail latency degradation. Second, we examine heterogeneous request handling and fairness. In the presence of heterogeneous request lengths, such as short chatbots versus long document summarization, we compare policies like Shortest Job First (SJF) and Priority Scheduling against FCFS. A key aspect of this inquiry is determining if the efficiency gain of SJF justifies the starvation of long requests and if this can be quantified using Jain's Fairness Index. Finally, we analyze system stability under non-stationary load to observe how the system behaves under time-varying loads, such as sinusoidal traffic spikes typical of diurnal user patterns. We aim to determine if adaptive batching strategies can mitigate performance collapse during burst periods better than static over-provisioning.
+The core optimization problem in LLM serving is to minimize response latency, specifically the p99 tail latency, while maximizing system throughput in tokens per second and ensuring fairness among users. We define three specific research questions to guide this study. First, we investigate dynamic batch size adaptation to understand how the selection of batch size $B$ influences the non-linear trade-off between throughput saturation and tail latency degradation. Second, we examine heterogeneous request handling and fairness. In the presence of heterogeneous request lengths, such as short chatbots versus long document summarization, we compare policies like Shortest Job First (SJF) and Priority Scheduling against FCFS. A key aspect of this inquiry is determining if the efficiency gain of SJF justifies the starvation of long requests and if this can be quantified using Jain's Fairness Index. Finally, we analyze system stability under non-stationary load to observe how the system behaves under traffic spikes. We aim to determine if adaptive batching strategies can mitigate performance collapse during burst periods better than static over-provisioning.
 
 \section{Methodology}
 
@@ -72,48 +77,150 @@ Following prefill, the model enters the decode phase where it generates tokens o
 T_{\text{decode\_total}} = \gamma \cdot \max_{i \in \text{batch}} l_{\text{output}, i}
 \end{equation}
 
+The timing parameters used in our simulation are calibrated for realistic GPU performance: $\alpha = 0.00015$ s/token (prefill), $\beta = 0.008$ s (overhead), and $\gamma = 0.010$ s/step (decode). These values result in a system saturation point of approximately 20 requests per second at batch size 32.
+
 \subsection{Simulation Design}
 SimPy was selected over commercial tools because its Pythonic generator-based architecture allows for flexible modeling of complex logic like preemption, continuous batching, and custom scheduling policies, which are difficult to express in drag-and-drop interfaces.
 
-The first component is the Request Generator, located in \texttt{src/simulation/request\_generator.py}, which simulates the arrival of user queries. It implements a non-homogeneous Poisson process where the inter-arrival times are exponentially distributed with a rate parameter $\lambda(t)$.
+The first component is the Request Generator, located in \texttt{src/simulation/request\_generator.py}, which simulates the arrival of user queries. It implements a non-homogeneous Poisson process where the inter-arrival times are exponentially distributed with a rate parameter $\lambda(t)$. Prompt lengths follow a LogNormal distribution with $\mu=3.5, \sigma=0.8$, producing a median of approximately 33 tokens.
 
-The second component is the Scheduler, defined in \texttt{src/scheduling/policies.py}, which acts as the "brain" of the server by managing the waiting queue and deciding which requests to promote to the GPU.
+The second component is the Scheduler, defined in \texttt{src/scheduling/policies.py}, which acts as the "brain" of the server by managing the waiting queue and deciding which requests to promote to the GPU. Implemented policies include FCFS, SJF, Predicted-SJF, and Priority with aging.
 
 The final component is the Inference Server, found in \texttt{src/simulation/llm\_server.py}, which orchestrates the lifecycle of requests. It pulls requests from the scheduler to form a batch of size $B$ and utilizes the BatchProcessor to simulate the passage of time.
 
 \subsection{Metric Instrumentation}
-We track latency metrics including queue time ($T_{wait}$) and processing time ($T_{service}$), aggregating these to Total Latency across p50, p95, and p99 percentiles. Throughput is measured as completed requests per second and tokens per second.
+We track latency metrics including queue time ($T_{wait}$) and processing time ($T_{service}$), aggregating these to Total Latency across p50, p95, and p99 percentiles. Throughput is measured as completed requests per second and tokens per second. Fairness is quantified using Jain's Fairness Index, computed as $({\sum x_i})^2 / (n \cdot \sum x_i^2)$, where values near 1 indicate perfect fairness.
 
 \section{Experimental Design and Execution}
-We designed a rigorous experimental campaign consisting of five scenarios to address the research questions. To ensure statistical validity, each data point reported is the aggregate of 30 independent replications, with random seeds controlled to ensure reproducibility, and we employ 95\% Confidence Intervals for all key metrics.
+We designed a rigorous experimental campaign consisting of five scenarios to address the research questions. To ensure statistical validity, each data point reported is the aggregate of 5-10 independent replications, with random seeds controlled to ensure reproducibility, and we employ 95\% Confidence Intervals for all key metrics.
 
-Experiment 1 focuses on batch size sensitivity to determine the optimal batch size $B$ that balances the trade-off between throughput and latency. Using a constant arrival rate of 10 requests per second, we tested batch sizes ranging from 1 to 128. We hypothesize that small batches will cause queue buildup due to low throughput, while huge batches will cause latency spikes due to blocking, resulting in a convex, U-shaped curve. Experiment 2 provides a comparative analysis of scheduling policies to evaluate their impact on fairness and tail latency. With a fixed batch size of 32, we introduced a bimodal workload mimicking a realistic mix of chat and document processing: 70\% short requests (10-50 tokens) and 30\% long requests (500-2000 tokens). We tested FCFS, SJF, Predicted-SJF, and Priority with aging.
+\textbf{Experiment 1} focuses on batch size sensitivity to determine the optimal batch size $B$ that balances the trade-off between throughput and latency. Using a constant arrival rate of 10 requests per second, we tested batch sizes ranging from 1 to 128.
 
-The subsequent experiments address system limits and variability. Experiment 3 performs load stress testing to identify the system saturation point by ramping the arrival rate linearly from 1 to 50 requests per second with a fixed batch size of 32, monitoring queue length growth and latency degradation. Experiment 4 assesses robustness against workload variance by comparing Uniform, LogNormal, and Power Law distributions to understand the impact of burstiness. Finally, Experiment 5 evaluates adaptive batching under non-stationary load patterns. We simulated a sinusoidal arrival rate peaking at 18 requests per second to compare static batching ($B=32$) against an adaptive strategy that increases batch size based on queue threshold.
+\textbf{Experiment 2} provides a comparative analysis of scheduling policies to evaluate their impact on fairness and tail latency. With a fixed batch size of 32 and arrival rate of 18 req/s (near saturation), we introduced a bimodal workload mimicking a realistic mix of chat and document processing: 70\% short requests (10-50 tokens) and 30\% long requests (200-500 tokens). We tested FCFS, SJF, Predicted-SJF, and Priority with aging.
+
+\textbf{Experiment 3} performs load stress testing to identify the system saturation point by ramping the arrival rate from 1 to 50 requests per second with a fixed batch size of 32.
+
+\textbf{Experiment 4} assesses robustness against workload variance by comparing Uniform, LogNormal, and Power Law distributions.
+
+\textbf{Experiment 5} evaluates adaptive batching under traffic spike conditions, comparing static batching ($B=32$) against an adaptive strategy that increases batch size during high-load periods.
 
 \section{Results and Analysis}
 
-\subsection{Batch Size Optimization and Head-of-Line Blocking}
-The results from Experiment 1 definitively illustrate the trade-off between resource efficiency and latency. At low batch sizes ($B=1, 2$), the system is effectively throughput-bound. In this state, the GPU is underutilized because the overhead $\beta$ dominates the execution time, leading to a low service rate and causing the queue to grow, which in turn inflates the average latency to over 600 ms. As $B$ increases, the amortized cost of memory access improves throughput, draining the queue faster and reducing latency. We observed a "sweet spot" around $B=32$, where average latency is minimized to approximately 386 ms and throughput saturates at roughly 5.65 requests per second. However, as we push the batch size to 128, while throughput remains stable, the p99 latency spikes significantly from 769ms to 1380ms. This trend confirms the Head-of-Line (HOL) Blocking effect: in a large batch, the probability of including a "long-tail" request increases.
+\subsection{Batch Size Optimization and Throughput Bottleneck}
 
-\subsection{Scheduling Policies}
-Experiment 2 explored how different policies manage a bimodal workload, highlighting a critical conflict between system-level efficiency and user-level fairness. Since request processing time is stochastic, ensuring true fairness requires shifting from simple arrival-based metrics to cost-function-based scheduling, where the system tracks the total token usage of each user to prevent long-running requests from monopolizing the GPU and blocking shorter jobs \citep{sheng2024}. In terms of efficiency, Shortest Job First (SJF) outperforms FCFS in average latency by approximately 15\% (442ms compared to 520ms). By leveraging service time predictions, the scheduler can reorder the queue to prioritize jobs with the least remaining work, a strategy theoretically proven to minimize mean response time in high-variance stochastic systems by clearing small tasks before they accumulate \citep{harchol2025}. By prioritizing short requests, which constitute 70\% of the load, SJF clears the queue count rapidly. However, this creates a "fairness crisis" for long requests. The p99 latency for SJF explodes to 1450ms, which is much worse than FCFS, and the Jain’s Fairness Index drops to 0.64. Furthermore, the Starvation Rate indicates that 12.4\% of requests, specifically the long ones, wait excessively. The Priority policy with aging offers a balanced compromise and solution to this issue. By gradually increasing the priority of waiting requests, it prevents indefinite starvation while still allowing short jobs to pass through quickly, ultimately achieving a fairness index of 0.75.
+The results from Experiment 1 definitively illustrate the trade-off between batch size and system capacity. As shown in Figure \ref{fig:batch_size}, at low batch sizes ($B \le 8$), the system is severely throughput-bound and cannot sustain the 10 req/s arrival rate.
 
-\subsection{Stress Testing and Adaptive Batching}
-In Experiment 3, we ramped the load to find the system's breaking point. The simulation revealed that for a batch size of 32, the system maintains stability up to an arrival rate of approximately 18 requests per second. Beyond this point, the queue grows linearly towards infinity, and latency degrades exponentially, establishing a capacity planning limit that suggests any sustained load above 18 req/s requires scaling out hardware rather than batching optimization. Experiment 5 further examined performance under non-stationary load using a sinusoidal traffic pattern peaking at this saturation level. We found that static batching ($B=32$) performed well during average load but caused queue explosions during peak intervals because the fixed throughput was insufficient to drain the spikes. To avoid this failure mode, statistical multiplexing is introduced as a technique that dynamically reallocates GPU resources based on real-time aggregate demand rather than static partitions, thereby preventing the underutilization observed during traffic valleys and the high latency penalties during peaks \citep{li2023}. In response, we implemented an adaptive batching control loop that dynamically scales the batch size. This strategy increases $B$ to 64 or 128 during peaks to maximize throughput and clear the backlog. While this temporarily increases latency for individual batches due to HOL blocking, it prevents catastrophic queue buildup, ultimately reducing the aggregate average latency over the 24-hour cycle by 22\%.
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.9\textwidth]{figures/experiment1_batch_size_analysis.png}
+\caption{Batch Size Sensitivity Analysis: Average latency, P99 latency, throughput, and max queue length across different batch sizes at 10 req/s arrival rate.}
+\label{fig:batch_size}
+\end{figure}
+
+Table \ref{tab:batch_size} summarizes the key results. At $B=1$, throughput is only 1.0 req/s, causing a queue explosion with average latency exceeding 870 seconds. As $B$ increases to 16, the system achieves stable operation with 9.9 req/s throughput and 2.3s average latency. The optimal operating point is between $B=16$ and $B=32$, where the system maintains low latency while achieving maximum throughput.
+
+\begin{table}[H]
+\centering
+\caption{Batch Size Sensitivity Results}
+\label{tab:batch_size}
+\begin{tabular}{@{}ccccc@{}}
+\toprule
+Batch Size & Avg Latency (s) & P99 Latency (s) & Throughput (req/s) & Max Queue \\
+\midrule
+1  & 876.5 & 1735.4 & 1.0 & 8762 \\
+8  & 257.6 & 505.9 & 6.5 & 3359 \\
+16 & 2.25 & 3.66 & 9.9 & 36 \\
+32 & 2.68 & 4.09 & 9.9 & 32 \\
+64 & 2.70 & 4.12 & 9.9 & 40 \\
+128 & 2.70 & 4.12 & 9.9 & 40 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Scheduling Policies and Fairness Trade-offs}
+
+Experiment 2 explored how different policies manage a bimodal workload at near-saturation load (18 req/s), highlighting a critical conflict between system-level efficiency and user-level fairness. Results are shown in Figure \ref{fig:scheduling} and Table \ref{tab:scheduling}.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.9\textwidth]{figures/experiment2_scheduling_policies.png}
+\caption{Scheduling Policy Comparison: Latency, fairness index, starvation rate, and throughput across different scheduling policies at 18 req/s with bimodal workload.}
+\label{fig:scheduling}
+\end{figure}
+
+\begin{table}[H]
+\centering
+\caption{Scheduling Policy Comparison Results}
+\label{tab:scheduling}
+\begin{tabular}{@{}lccccc@{}}
+\toprule
+Policy & Avg Latency & P99 Latency & Fairness & Starvation & Throughput \\
+\midrule
+FCFS & 14.65s & 25.50s & 0.869 & 0.0\% & 16.3 req/s \\
+SJF & 9.15s & 190.1s & 0.086 & 7.0\% & 15.2 req/s \\
+Predicted-SJF & 9.01s & 186.2s & 0.085 & 6.9\% & 15.3 req/s \\
+Priority (aging) & 13.82s & 26.38s & 0.840 & 0.07\% & 16.1 req/s \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Shortest Job First (SJF) reduces average latency by \textbf{37\%} compared to FCFS (9.15s vs 14.65s). However, this creates a severe fairness crisis: the P99 latency explodes to 190 seconds (7.5$\times$ worse), Jain's Fairness Index drops from 0.87 to 0.09, and 7\% of requests experience starvation. The Priority policy with aging offers a balanced compromise, achieving a fairness index of 0.84 while reducing average latency by 6\%.
+
+\subsection{Load Stress Testing and Saturation Point}
+
+Experiment 3 ramped the load to find the system's breaking point. As shown in Figure \ref{fig:stress}, the system maintains stability up to approximately 20 requests per second. Beyond this point, queue length grows linearly and latency degrades exponentially.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.9\textwidth]{figures/experiment3_load_stress.png}
+\caption{Load Stress Testing: System behavior as arrival rate increases from 1 to 50 req/s. Saturation occurs around 25 req/s where throughput caps at 20 req/s.}
+\label{fig:stress}
+\end{figure}
+
+At $\lambda=10$ req/s, the system operates stably with 2.68s average latency. At $\lambda=18$ req/s, the system is near saturation with 17.5 req/s throughput. At $\lambda=25$ req/s, queue explosion occurs with 22s average latency and 821 max queue length. The recommended maximum operating rate is 20 req/s (80\% of saturation point) to maintain SLO guarantees.
+
+\subsection{Adaptive Batching under Traffic Spikes}
+
+Experiment 5 evaluated adaptive batching using a traffic spike scenario. Instead of a slow sinusoidal simulation, we compared system performance under normal load (10 req/s) versus spike load (25 req/s) with different batch sizes. Results are shown in Figure \ref{fig:adaptive}.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.9\textwidth]{figures/experiment5_adaptive_batching.png}
+\caption{Adaptive Batching Analysis: Comparison of latency and queue depth under normal and spike loads. Adaptive strategy (B=32$\rightarrow$64) significantly outperforms static batching.}
+\label{fig:adaptive}
+\end{figure}
+
+Under normal load, all batch sizes perform similarly ($\sim$2.7s latency). Under spike load (25 req/s), larger batch sizes handle the load much better: $B=16$ fails catastrophically (42.5s latency, 1071 queue), $B=32$ struggles (9.9s latency, 389 queue), while $B=64$ handles well (3.1s latency, 64 queue).
+
+The adaptive strategy (using $B=32$ during normal load and switching to $B=64$ during spikes) reduces aggregate latency by \textbf{54\%} compared to static $B=32$ batching, and reduces maximum queue depth by \textbf{84\%}.
 
 \section{Discussion}
 
 \subsection{Design Decisions, Software Limitations, and Validity}
-A critical design decision in our SimPy implementation was modeling the BatchProcessor as a blocking generator. This accurately reflects the synchronization barrier in Static Batching, where all requests in a batch must finish before the next batch starts. However, modern systems like Orca and vLLM utilize Continuous Batching or iteration-level scheduling, where completed requests are evicted immediately, and new ones are inserted into the running batch \citep{yu2022}. Our current simulation serves as a baseline for Static Batching; extending it to Continuous Batching would require refactoring the processor to yield per-token generation steps rather than the full sequence duration. Despite this limitation, SimPy proved to be an excellent tool for this domain, as its Resource and Store constructs mapped naturally to the GPU lock and Request Queue, although we did encounter limitations regarding native support for preemptive interrupt handling in complex priority queues. While timing parameters were chosen based on literature, real deployments would vary based on quantization and specific GPU architecture, validating that batching is not a silver bullet due to workload heterogeneity.
+A critical design decision in our SimPy implementation was modeling the BatchProcessor as a blocking generator. This accurately reflects the synchronization barrier in Static Batching, where all requests in a batch must finish before the next batch starts. However, modern systems like Orca and vLLM utilize Continuous Batching or iteration-level scheduling, where completed requests are evicted immediately, and new ones are inserted into the running batch \citep{yu2022}. Our current simulation serves as a baseline for Static Batching; extending it to Continuous Batching would require refactoring the processor to yield per-token generation steps rather than the full sequence duration.
+
+The simulation correctly captures key phenomena: (1) throughput bottleneck at small batch sizes, (2) SJF's efficiency-fairness trade-off, (3) system saturation behavior, and (4) benefits of adaptive batching. Timing parameters were calibrated to achieve realistic saturation points ($\sim$20 req/s at $B=32$).
 
 \subsection{Implications for Enterprise Operations}
-For practitioners deploying LLM services, our findings suggest several key operational strategies. First, we recommend avoiding fixed batch sizes and instead implementing adaptive batching logic that scales $B$ according to queue depth. Second, if providing tiered services such as differentiating between Free and Pro users, it is crucial to use priority aging mechanisms to prevent the starvation of low-tier requests during periods of high load. Finally, operators should strictly monitor tail latency, as average latency is a misleading metric in heavy-tailed workloads; Service Level Objectives (SLOs) should be explicitly defined on the p99 metric to ensure a consistent user experience.
+For practitioners deploying LLM services, our findings suggest several key operational strategies:
+
+\begin{enumerate}
+\item \textbf{Minimum Batch Size}: Ensure batch size is large enough to sustain target throughput. At 10 req/s, $B \ge 16$ is required; smaller batches cause catastrophic queue buildup.
+
+\item \textbf{Adaptive Batching}: Implement queue-depth-based batch size scaling. During normal load, use moderate batch sizes ($B=32$) for low latency. During traffic spikes, increase to $B=64$ to prevent queue explosion.
+
+\item \textbf{Scheduling Trade-offs}: If providing tiered services, use priority aging mechanisms rather than pure SJF to prevent starvation of low-tier requests. Pure SJF can cause 7\% starvation rate.
+
+\item \textbf{Capacity Planning}: Operate at 80\% of saturation point (20 req/s at $B=32$) to maintain SLO guarantees with safety margin.
+\end{enumerate}
 
 \section{Conclusion and Future Work}
-This project successfully developed a discrete-event simulation framework to analyze the operational dynamics of LLM inference. We rigorously quantified the trade-offs between batch size, throughput, and latency, demonstrating that moderate batch sizes of approximately 32 offer the optimal operating point for static batching systems. We further revealed that while SJF scheduling improves efficiency, it compromises fairness, a trade-off that can be effectively mitigated through priority aging.
+This project successfully developed a discrete-event simulation framework to analyze the operational dynamics of LLM inference. We rigorously quantified the trade-offs between batch size, throughput, and latency, demonstrating that batch sizes of 16-32 offer the optimal operating point for static batching systems. We further revealed that while SJF scheduling reduces average latency by 37\%, it severely compromises fairness (Jain's Index 0.09 vs 0.87), a trade-off that can be mitigated through priority aging. Most importantly, adaptive batching under traffic spikes reduces latency by 54\% compared to static approaches.
 
-Future work will focus on two key areas to enhance the simulation's applicability. The first is the implementation of Continuous Batching, which involves refactoring the BatchProcessor to simulate iteration-level scheduling, a change that promises to eliminate the Head-of-Line blocking observed in our first experiment. The second area involves empirical calibration, where we aim to collect trace data from a real vLLM deployment on NVIDIA GPUs to fine-tune the timing parameters $\alpha$, $\beta$, and $\gamma$, ensuring the model's predictive power matches specific hardware configurations. Overall, this work contributes a reusable, extensible simulation tool for the IEOR and Systems community to explore the burgeoning field of LLM infrastructure optimization.
+Future work will focus on two key areas. First, implementing Continuous Batching by refactoring the BatchProcessor to simulate iteration-level scheduling. Second, empirical calibration by collecting trace data from real vLLM deployments on NVIDIA GPUs to validate timing parameters.
+
+\vspace{1em}
+\noindent\textbf{Code Availability}: The complete simulation framework, including all experiment scripts and analysis tools, is available at \url{https://github.com/momoway/llm-infer}.
 
 % --- 调用参考文献 ---
 \bibliography{references}
