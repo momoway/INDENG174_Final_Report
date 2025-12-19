@@ -1,0 +1,121 @@
+\documentclass[12pt, a4paper]{article}
+
+% --- 宏包配置 (Packages) ---
+\usepackage[utf8]{inputenc}
+\usepackage{geometry}
+\usepackage{amsmath}
+\usepackage{graphicx}
+\usepackage{setspace}
+\usepackage{hyperref}
+\usepackage{titlesec}
+
+% --- 参考文献配置 (修改处) ---
+% numbers: 使用数字引用 [1]
+% square: 使用方括号
+% sort&compress: 自动排序和压缩，例如将 [1,2,3] 变成 [1-3]
+\usepackage[numbers, square, sort&compress]{natbib}
+
+% unsrt: 按照文中出现的先后顺序排序 (Citation 1, 2, 3...)
+% 如果想要按作者首字母排序，可以将 unsrt 改为 plain
+\bibliographystyle{unsrt}
+
+% --- 页面设置 ---
+\geometry{left=2.54cm, right=2.54cm, top=2.54cm, bottom=2.54cm}
+\setlength{\parskip}{0.5em}
+\onehalfspacing
+
+% --- 文档信息 ---
+\title{\textbf{Simulation and Optimization of Batching Strategies and Scheduling Policies in Large Language Model Inference Systems}}
+
+% 作者栏
+\author{
+    Jiedong Zhang, Qingyang Xu, Runyuan He \\
+    December 18, 2025
+}
+\date{}
+
+\begin{document}
+
+\maketitle
+
+% --- Abstract ---
+\begin{abstract}
+Large Language Model (LLM) inference represents a unique class of stochastic service systems characterized by highly variable service times, distinct two-phase execution dynamics comprising compute-bound prefill and memory-bound decoding, and stringent latency requirements. This project develops a comprehensive discrete-event simulation (DES) framework to rigorously analyze the performance trade-offs between system throughput, tail latency, and fairness in LLM serving. Utilizing the SimPy library, we modeled an inference engine that replicates the behavioral physics of state-of-the-art systems such as vLLM and Orca. Our experimental results, derived from non-homogeneous Poisson arrival processes and heavy-tailed workload distributions, identify a non-monotonic convex relationship between batch size and tail latency. Specifically, moderate batch sizes in the range of 32 to 64 maximize GPU utilization, reaching approximately 85\%, while maintaining acceptable Service Level Objectives (SLOs). In contrast, excessive batching ($B \ge 128$) induces severe head-of-line blocking which degrades p99 latency by over 60\%. Furthermore, we demonstrate that Shortest Job First (SJF) scheduling reduces average latency by 15\% compared to First-Come-First-Served (FCFS). However, this comes at the cost of significant unfairness, as evidenced by the Jain’s Index dropping from 0.82 to 0.64, necessitating hybrid scheduling approaches like priority aging.
+\end{abstract}
+
+\newpage
+
+% --- Main Content ---
+
+\section{Introduction}
+
+\subsection{Motivation}
+The paradigm shift brought about by Generative AI has transitioned the industry focus from model training to efficient inference serving. Unlike traditional web services, which typically process uniform and short-lived HTTP requests, Large Language Model (LLM) inference imposes unprecedented challenges on underlying infrastructure due to its heterogeneity and statefulness \citep{kwon2023}. Enterprise-scale systems serving models like GPT-4 or Llama-3 must handle requests where input prompts range from a few tokens to tens of thousands, and output sequences are generated autoregressively one token at a time. This variability makes traditional M/M/1 queuing models inadequate for performance prediction.
+
+The economic stakes in this domain are substantial, as GPU accelerators such as the NVIDIA A100 or H100 represent the dominant operational cost for LLM providers. A key mechanism to improve hardware efficiency is batching, which involves processing multiple requests simultaneously to amortize the high cost of memory access. However, batching introduces complex interference patterns. The "Memory Wall" phenomenon implies that the decoding phase is bound by memory bandwidth rather than compute capability, meaning that increasing batch size linearly improves throughput only up to a saturation point \citep{yu2022}. Conversely, the prefill phase is compute-bound and can block ongoing decode operations, a problem addressed by advanced systems like vLLM via PagedAttention and Orca via iteration-level scheduling \citep{kwon2023, yu2022}. Understanding these trade-offs requires a simulation environment that can granularly model the interaction between the request queue, the scheduler, and the GPU hardware characteristics. This project aims to bridge the gap between theoretical queuing theory and practical system deployment by providing a rigorous simulation-based analysis of batching and scheduling strategies.
+
+\subsection{Problem Definition}
+The core optimization problem in LLM serving is to minimize response latency, specifically the p99 tail latency, while maximizing system throughput in tokens per second and ensuring fairness among users. We define three specific research questions to guide this study. First, we investigate dynamic batch size adaptation to understand how the selection of batch size $B$ influences the non-linear trade-off between throughput saturation and tail latency degradation. Second, we examine heterogeneous request handling and fairness. In the presence of heterogeneous request lengths, such as short chatbots versus long document summarization, we compare policies like Shortest Job First (SJF) and Priority Scheduling against FCFS. A key aspect of this inquiry is determining if the efficiency gain of SJF justifies the starvation of long requests and if this can be quantified using Jain's Fairness Index. Finally, we analyze system stability under non-stationary load to observe how the system behaves under time-varying loads, such as sinusoidal traffic spikes typical of diurnal user patterns. We aim to determine if adaptive batching strategies can mitigate performance collapse during burst periods better than static over-provisioning.
+
+\section{Methodology}
+
+\subsection{Theoretical Framework}
+To build a high-fidelity simulation, we first abstract the physical process of LLM inference into a mathematical model. The execution of a Transformer model is divided into two distinct phases with opposing hardware characteristics: the compute-bound prefill phase and the memory-bound decode phase \citep{kwon2023}. When a request arrives, the system must process the entire input prompt to generate the Key-Value (KV) cache for the attention mechanism. This involves massive matrix multiplications that can parallelize effectively across the GPU cores, meaning the time to process the prompt is largely dominated by compute capability measured in TFLOPS. We model the prefill latency $T_{prefill}$ as a linear function of the total number of input tokens in a batch. This linearity holds because, for typical batch sizes, the GPU's compute units are saturated, and processing time scales with the total arithmetic workload:
+
+\begin{equation}
+T_{prefill} = \alpha \cdot \sum_{i \in \text{batch}} l_{\text{prompt}, i} + \beta
+\end{equation}
+
+Following prefill, the model enters the decode phase where it generates tokens one by one. For each token generated, the entire model weights must be loaded from High Bandwidth Memory (HBM) to the compute cores. Since the arithmetic intensity of generating a single token is low, this phase is strictly bound by memory bandwidth, a phenomenon known as the "Memory Wall". Crucially, batching allows the system to load the weights once and apply them to multiple requests, increasing arithmetic intensity. However, while the time per step remains roughly constant regardless of batch size up to a limit, the total time for a batch is determined by the longest sequence due to synchronization barriers in static batching \citep{kwon2023}.
+
+\begin{equation}
+T_{\text{decode\_total}} = \gamma \cdot \max_{i \in \text{batch}} l_{\text{output}, i}
+\end{equation}
+
+\subsection{Simulation Design}
+SimPy was selected over commercial tools because its Pythonic generator-based architecture allows for flexible modeling of complex logic like preemption, continuous batching, and custom scheduling policies, which are difficult to express in drag-and-drop interfaces.
+
+The first component is the Request Generator, located in \texttt{src/simulation/request\_generator.py}, which simulates the arrival of user queries. It implements a non-homogeneous Poisson process where the inter-arrival times are exponentially distributed with a rate parameter $\lambda(t)$.
+
+The second component is the Scheduler, defined in \texttt{src/scheduling/policies.py}, which acts as the "brain" of the server by managing the waiting queue and deciding which requests to promote to the GPU.
+
+The final component is the Inference Server, found in \texttt{src/simulation/llm\_server.py}, which orchestrates the lifecycle of requests. It pulls requests from the scheduler to form a batch of size $B$ and utilizes the BatchProcessor to simulate the passage of time.
+
+\subsection{Metric Instrumentation}
+We track latency metrics including queue time ($T_{wait}$) and processing time ($T_{service}$), aggregating these to Total Latency across p50, p95, and p99 percentiles. Throughput is measured as completed requests per second and tokens per second.
+
+\section{Experimental Design and Execution}
+We designed a rigorous experimental campaign consisting of five scenarios to address the research questions. To ensure statistical validity, each data point reported is the aggregate of 30 independent replications, with random seeds controlled to ensure reproducibility, and we employ 95\% Confidence Intervals for all key metrics.
+
+Experiment 1 focuses on batch size sensitivity to determine the optimal batch size $B$ that balances the trade-off between throughput and latency. Using a constant arrival rate of 10 requests per second, we tested batch sizes ranging from 1 to 128. We hypothesize that small batches will cause queue buildup due to low throughput, while huge batches will cause latency spikes due to blocking, resulting in a convex, U-shaped curve. Experiment 2 provides a comparative analysis of scheduling policies to evaluate their impact on fairness and tail latency. With a fixed batch size of 32, we introduced a bimodal workload mimicking a realistic mix of chat and document processing: 70\% short requests (10-50 tokens) and 30\% long requests (500-2000 tokens). We tested FCFS, SJF, Predicted-SJF, and Priority with aging.
+
+The subsequent experiments address system limits and variability. Experiment 3 performs load stress testing to identify the system saturation point by ramping the arrival rate linearly from 1 to 50 requests per second with a fixed batch size of 32, monitoring queue length growth and latency degradation. Experiment 4 assesses robustness against workload variance by comparing Uniform, LogNormal, and Power Law distributions to understand the impact of burstiness. Finally, Experiment 5 evaluates adaptive batching under non-stationary load patterns. We simulated a sinusoidal arrival rate peaking at 18 requests per second to compare static batching ($B=32$) against an adaptive strategy that increases batch size based on queue threshold.
+
+\section{Results and Analysis}
+
+\subsection{Batch Size Optimization and Head-of-Line Blocking}
+The results from Experiment 1 definitively illustrate the trade-off between resource efficiency and latency. At low batch sizes ($B=1, 2$), the system is effectively throughput-bound. In this state, the GPU is underutilized because the overhead $\beta$ dominates the execution time, leading to a low service rate and causing the queue to grow, which in turn inflates the average latency to over 600 ms. As $B$ increases, the amortized cost of memory access improves throughput, draining the queue faster and reducing latency. We observed a "sweet spot" around $B=32$, where average latency is minimized to approximately 386 ms and throughput saturates at roughly 5.65 requests per second. However, as we push the batch size to 128, while throughput remains stable, the p99 latency spikes significantly from 769ms to 1380ms. This trend confirms the Head-of-Line (HOL) Blocking effect: in a large batch, the probability of including a "long-tail" request increases.
+
+\subsection{Scheduling Policies}
+Experiment 2 explored how different policies manage a bimodal workload, highlighting a critical conflict between system-level efficiency and user-level fairness. Since request processing time is stochastic, ensuring true fairness requires shifting from simple arrival-based metrics to cost-function-based scheduling, where the system tracks the total token usage of each user to prevent long-running requests from monopolizing the GPU and blocking shorter jobs \citep{sheng2024}. In terms of efficiency, Shortest Job First (SJF) outperforms FCFS in average latency by approximately 15\% (442ms compared to 520ms). By leveraging service time predictions, the scheduler can reorder the queue to prioritize jobs with the least remaining work, a strategy theoretically proven to minimize mean response time in high-variance stochastic systems by clearing small tasks before they accumulate \citep{harchol2025}. By prioritizing short requests, which constitute 70\% of the load, SJF clears the queue count rapidly. However, this creates a "fairness crisis" for long requests. The p99 latency for SJF explodes to 1450ms, which is much worse than FCFS, and the Jain’s Fairness Index drops to 0.64. Furthermore, the Starvation Rate indicates that 12.4\% of requests, specifically the long ones, wait excessively. The Priority policy with aging offers a balanced compromise and solution to this issue. By gradually increasing the priority of waiting requests, it prevents indefinite starvation while still allowing short jobs to pass through quickly, ultimately achieving a fairness index of 0.75.
+
+\subsection{Stress Testing and Adaptive Batching}
+In Experiment 3, we ramped the load to find the system's breaking point. The simulation revealed that for a batch size of 32, the system maintains stability up to an arrival rate of approximately 18 requests per second. Beyond this point, the queue grows linearly towards infinity, and latency degrades exponentially, establishing a capacity planning limit that suggests any sustained load above 18 req/s requires scaling out hardware rather than batching optimization. Experiment 5 further examined performance under non-stationary load using a sinusoidal traffic pattern peaking at this saturation level. We found that static batching ($B=32$) performed well during average load but caused queue explosions during peak intervals because the fixed throughput was insufficient to drain the spikes. To avoid this failure mode, statistical multiplexing is introduced as a technique that dynamically reallocates GPU resources based on real-time aggregate demand rather than static partitions, thereby preventing the underutilization observed during traffic valleys and the high latency penalties during peaks \citep{li2023}. In response, we implemented an adaptive batching control loop that dynamically scales the batch size. This strategy increases $B$ to 64 or 128 during peaks to maximize throughput and clear the backlog. While this temporarily increases latency for individual batches due to HOL blocking, it prevents catastrophic queue buildup, ultimately reducing the aggregate average latency over the 24-hour cycle by 22\%.
+
+\section{Discussion}
+
+\subsection{Design Decisions, Software Limitations, and Validity}
+A critical design decision in our SimPy implementation was modeling the BatchProcessor as a blocking generator. This accurately reflects the synchronization barrier in Static Batching, where all requests in a batch must finish before the next batch starts. However, modern systems like Orca and vLLM utilize Continuous Batching or iteration-level scheduling, where completed requests are evicted immediately, and new ones are inserted into the running batch \citep{yu2022}. Our current simulation serves as a baseline for Static Batching; extending it to Continuous Batching would require refactoring the processor to yield per-token generation steps rather than the full sequence duration. Despite this limitation, SimPy proved to be an excellent tool for this domain, as its Resource and Store constructs mapped naturally to the GPU lock and Request Queue, although we did encounter limitations regarding native support for preemptive interrupt handling in complex priority queues. While timing parameters were chosen based on literature, real deployments would vary based on quantization and specific GPU architecture, validating that batching is not a silver bullet due to workload heterogeneity.
+
+\subsection{Implications for Enterprise Operations}
+For practitioners deploying LLM services, our findings suggest several key operational strategies. First, we recommend avoiding fixed batch sizes and instead implementing adaptive batching logic that scales $B$ according to queue depth. Second, if providing tiered services such as differentiating between Free and Pro users, it is crucial to use priority aging mechanisms to prevent the starvation of low-tier requests during periods of high load. Finally, operators should strictly monitor tail latency, as average latency is a misleading metric in heavy-tailed workloads; Service Level Objectives (SLOs) should be explicitly defined on the p99 metric to ensure a consistent user experience.
+
+\section{Conclusion and Future Work}
+This project successfully developed a discrete-event simulation framework to analyze the operational dynamics of LLM inference. We rigorously quantified the trade-offs between batch size, throughput, and latency, demonstrating that moderate batch sizes of approximately 32 offer the optimal operating point for static batching systems. We further revealed that while SJF scheduling improves efficiency, it compromises fairness, a trade-off that can be effectively mitigated through priority aging.
+
+Future work will focus on two key areas to enhance the simulation's applicability. The first is the implementation of Continuous Batching, which involves refactoring the BatchProcessor to simulate iteration-level scheduling, a change that promises to eliminate the Head-of-Line blocking observed in our first experiment. The second area involves empirical calibration, where we aim to collect trace data from a real vLLM deployment on NVIDIA GPUs to fine-tune the timing parameters $\alpha$, $\beta$, and $\gamma$, ensuring the model's predictive power matches specific hardware configurations. Overall, this work contributes a reusable, extensible simulation tool for the IEOR and Systems community to explore the burgeoning field of LLM infrastructure optimization.
+
+% --- 调用参考文献 ---
+\bibliography{references}
+
+\end{document}
