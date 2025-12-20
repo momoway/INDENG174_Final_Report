@@ -42,6 +42,12 @@
 
 \maketitle
 
+\begin{center}
+\textbf{Video Presentation}: \url{https://drive.google.com/drive/folders/1GpG3E1FakhvStBVZKQDAxYvXsa4iCFYv?usp=sharing}
+\end{center}
+
+\vspace{1em}
+
 % --- Abstract ---
 \begin{abstract}
 Large Language Model (LLM) inference represents a unique class of stochastic service systems characterized by highly variable service times, distinct two-phase execution dynamics comprising compute-bound prefill and memory-bound decoding, and stringent latency requirements. This project develops a comprehensive discrete-event simulation (DES) framework to rigorously analyze the performance trade-offs between system throughput, tail latency, and fairness in LLM serving. Utilizing the SimPy library, we modeled an inference engine that replicates the behavioral physics of state-of-the-art systems such as vLLM and Orca. Our experimental results, derived from non-homogeneous Poisson arrival processes and heavy-tailed workload distributions, identify a non-monotonic relationship between batch size and system performance. Specifically, moderate batch sizes in the range of 16 to 32 maximize throughput while maintaining acceptable latency. In contrast, small batch sizes ($B \le 8$) cause severe throughput bottlenecks. Furthermore, we demonstrate that Shortest Job First (SJF) scheduling reduces average latency by 37\% compared to First-Come-First-Served (FCFS). However, this comes at the cost of significant unfairness, as evidenced by Jain's Index dropping from 0.87 to 0.09, with 7\% starvation rate, necessitating hybrid scheduling approaches like priority aging. Finally, adaptive batching under traffic spikes reduces aggregate latency by 54\% compared to static batching.
