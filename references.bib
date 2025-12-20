@@ -1,28 +1,28 @@
-@article{harchol2025,
-  title={Queueing, Predictions, and Large Language Models: Challenges and Open Problems},
-  author={Mitzenmacher, Michael and Shahout, Rana},
-  journal={Stochastic Systems},
-  volume={15},
-  number={3},
-  year={2025},
-  publisher={INFORMS},
-  note={Early Access}
-}
-
+% Core LLM Serving Systems
 @inproceedings{kwon2023,
   title={Efficient Memory Management for Large Language Model Serving with {PagedAttention}},
   author={Kwon, Woosuk and Li, Zhuohan and Zhuang, Siyuan and Sheng, Ying and Zheng, Lianmin and Yu, Cody Hao and Gonzalez, Joseph E. and Zhang, Hao and Stoica, Ion},
   booktitle={Proceedings of the 29th Symposium on Operating Systems Principles (SOSP '23)},
+  pages={611--626},
   year={2023},
   address={Koblenz, Germany}
+}
+
+@inproceedings{yu2022,
+  title={{Orca}: A Distributed Serving System for {Transformer-Based} Generative Models},
+  author={Yu, Gyeong-In and Jeong, Joo Seong and Kim, Geon-Woo and Kim, Soojeong and Chun, Byung-Gon},
+  booktitle={16th USENIX Symposium on Operating Systems Design and Implementation (OSDI 22)},
+  pages={521--538},
+  year={2022},
+  address={Carlsbad, CA}
 }
 
 @inproceedings{li2023,
   title={{AlpaServe}: Statistical Multiplexing with Model Parallelism for Deep Learning Serving},
   author={Li, Zhuohan and Zheng, Lianmin and Zhong, Yinmin and Liu, Vincent and Sheng, Ying and Jin, Xin and Huang, Yanping and Chen, Zhifeng and Zhang, Hao and Gonzalez, Joseph E. and Stoica, Ion},
   booktitle={17th USENIX Symposium on Operating Systems Design and Implementation (OSDI 23)},
-  year={2023},
   pages={663--679},
+  year={2023},
   address={Boston, MA}
 }
 
@@ -34,11 +34,122 @@
   address={Santa Clara, CA}
 }
 
-@inproceedings{yu2022,
-  title={{Orca}: A Distributed Serving System for {Transformer-Based} Generative Models},
-  author={Yu, Gyeong-In and Jeong, Joo Seong and Kim, Geon-Woo and Kim, Soojeong and Chun, Byung-Gon},
-  booktitle={16th USENIX Symposium on Operating Systems Design and Implementation (OSDI 22)},
+% Queueing Theory and Scheduling
+@article{harchol2025,
+  title={Queueing, Predictions, and Large Language Models: Challenges and Open Problems},
+  author={Mitzenmacher, Michael and Shahout, Rana},
+  journal={Stochastic Systems},
+  volume={15},
+  number={3},
+  year={2025},
+  publisher={INFORMS},
+  note={Early Access}
+}
+
+% Attention and Memory Optimization
+@misc{dao2022flashattention,
+  title={FlashAttention: Fast and Memory-Efficient Exact Attention with IO-Awareness}, 
+  author={Tri Dao and Daniel Y. Fu and Stefano Ermon and Atri Rudra and Christopher Ré},
   year={2022},
-  pages={521--538},
-  address={Carlsbad, CA}
+  eprint={2205.14135},
+  archivePrefix={arXiv},
+  primaryClass={cs.LG}
+}
+
+@misc{ye2025flashinfer,
+  title={FlashInfer: Efficient and Customizable Attention Engine for LLM Inference Serving}, 
+  author={Zihao Ye and Lequn Chen and Ruihang Lai and Wuwei Lin and Yineng Zhang and Stephanie Wang and Tianqi Chen and Baris Kasikci and Vinod Grover and Arvind Krishnamurthy and Luis Ceze},
+  year={2025},
+  eprint={2501.01005},
+  archivePrefix={arXiv},
+  primaryClass={cs.DC}
+}
+
+% KV Cache and Optimization
+@inproceedings{liu2024cachegen,
+  title={Cachegen: KV Cache Compression and Streaming for Fast Large Language Model Serving},
+  author={Liu, Yuhan and Li, Hanchen and Cheng, Yihua and Ray, Siddhant and Huang, Yuyang and Zhang, Qizheng and Du, Kuntai and Yao, Jiayi and Lu, Shan and Ananthanarayanan, Ganesh and others},
+  booktitle={Proceedings of the ACM SIGCOMM 2024 Conference},
+  pages={38--56},
+  year={2024}
+}
+
+@inproceedings{yao2025cacheblend,
+  title={CacheBlend: Fast Large Language Model Serving for RAG with Cached Knowledge Fusion},
+  author={Yao, Jiayi and Li, Hanchen and Liu, Yuhan and Ray, Siddhant and Cheng, Yihua and Zhang, Qizheng and Du, Kuntai and Lu, Shan and Jiang, Junchen},
+  booktitle={Proceedings of the Twentieth European Conference on Computer Systems},
+  pages={94--109},
+  year={2025}
+}
+
+% Throughput-Latency Trade-offs
+@inproceedings{agrawal2024sarathi,
+  title={Taming Throughput-Latency Tradeoff in LLM Inference with Sarathi-Serve},
+  author={Agrawal, Amey and Kedia, Nitin and Panwar, Ashish and Mohan, Jayashree and Kwatra, Nipun and Gulavani, Bhargav and Tumanov, Alexey and Ramjee, Ramachandran},
+  booktitle={18th USENIX Symposium on Operating Systems Design and Implementation (OSDI 24)},
+  pages={117--134},
+  year={2024}
+}
+
+@misc{zhu2025nanoflow,
+  title={NanoFlow: Towards Optimal Large Language Model Serving Throughput}, 
+  author={Kan Zhu and Yufei Gao and Yilong Zhao and Liangyu Zhao and Gefei Zuo and Yile Gu and Dedong Xie and Tian Tang and Qinyu Xu and Zihao Ye and Keisuke Kamahori and Chien-Yu Lin and Ziren Wang and Stephanie Wang and Arvind Krishnamurthy and Baris Kasikci},
+  year={2025},
+  eprint={2408.12757},
+  archivePrefix={arXiv},
+  primaryClass={cs.DC}
+}
+
+% Distributed Scheduling
+@inproceedings{sun2024llumnix,
+  title={Llumnix: Dynamic Scheduling for Large Language Model Serving},
+  author={Sun, Biao and Huang, Ziming and Zhao, Hanyu and Xiao, Wencong and Zhang, Xinyi and Li, Yong and Lin, Wei},
+  booktitle={18th USENIX Symposium on Operating Systems Design and Implementation (OSDI 24)},
+  pages={173--191},
+  year={2024}
+}
+
+@misc{srivatsa2024preble,
+  title={Preble: Efficient Distributed Prompt Scheduling for LLM Serving}, 
+  author={Vikranth Srivatsa and Zijian He and Reyna Abhyankar and Dongming Li and Yiying Zhang},
+  year={2024},
+  eprint={2407.00023},
+  archivePrefix={arXiv},
+  primaryClass={cs.DC}
+}
+
+% Efficient Inference Systems
+@article{wu2023fast,
+  title={Fast Distributed Inference Serving for Large Language Models},
+  author={Wu, Bingyang and Zhong, Yinmin and Zhang, Zili and Liu, Shengyu and Liu, Fangyue and Sun, Yuanhang and Huang, Gang and Liu, Xuanzhe and Jin, Xin},
+  journal={arXiv preprint arXiv:2305.05920},
+  year={2023}
+}
+
+@article{zheng2024sglang,
+  title={SGLang: Efficient Execution of Structured Language Model Programs},
+  author={Zheng, Lianmin and Yin, Liangsheng and Xie, Zhiqiang and Sun, Chuyue Livia and Huang, Jeff and Yu, Cody Hao and Cao, Shiyi and Kozyrakis, Christos and Stoica, Ion and Gonzalez, Joseph E and others},
+  journal={Advances in Neural Information Processing Systems},
+  volume={37},
+  pages={62557--62583},
+  year={2024}
+}
+
+% Programmable Serving
+@inproceedings{gim2025pie,
+  author = {Gim, In and Ma, Zhiyao and Lee, Seung-seob and Zhong, Lin},
+  title = {Pie: A Programmable Serving System for Emerging LLM Applications},
+  booktitle = {Proceedings of the ACM SIGOPS 31st Symposium on Operating Systems Principles (SOSP '25)},
+  pages = {415--430},
+  year = {2025},
+  address = {Seoul, Republic of Korea}
+}
+
+% Discrete Event Simulation
+@book{law2015simulation,
+  title={Simulation Modeling and Analysis},
+  author={Law, Averill M},
+  edition={5th},
+  year={2015},
+  publisher={McGraw-Hill Education}
 }
